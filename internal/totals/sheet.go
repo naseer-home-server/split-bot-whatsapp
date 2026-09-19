@@ -29,7 +29,9 @@ type SheetLayout struct {
 	DiscountRow    int // 1-based
 	TotalRow       int
 	TaxTotalRow    int
-	TaxProductCell string // e.g. $B$12
+	TaxProductCell string // e.g. $B$8*$B$9, or 1 if no taxes
+	TaxStartRow    int    // 1-based first tax row; 0 if none
+	LastDataRow    int    // 1-based last row with values
 	PersonCount    int
 	LastColumn     int // exclusive, 0-based
 }
@@ -170,9 +172,11 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 	}
 	totalRow := discountRow + 1
 	taxTotalRow := totalRow + 1
-	taxInfoRow := taxTotalRow + 2
-	taxProduct := TaxProduct(tax)
-	taxCell := fmt.Sprintf("$B$%d", taxInfoRow)
+	taxStartRow := taxTotalRow + 2
+	taxFactor := taxFactorExpr(tax, taxStartRow)
+	if len(tax) == 0 {
+		taxStartRow = 0
+	}
 
 	lastPersonCol := sheetFirstPerson + nPeople - 1
 	header := []any{"Item", "Price", "Divided by", "Per person"}
@@ -180,7 +184,7 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 		header = append(header, p.Name)
 	}
 
-	rows := make([][]any, 0, taxInfoRow+len(tax)+2)
+	rows := make([][]any, 0, taxTotalRow+len(tax)+3)
 	rows = append(rows, header)
 
 	assignedOn := func(itemID, userKey string) bool {
@@ -233,12 +237,12 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 	}
 	rows = append(rows, totalRowVals)
 
-	taxRowVals := []any{"Total with tax", fmt.Sprintf("=B%d*%s+B%d", totalRow, taxCell, discountRow)}
+	taxRowVals := []any{"Total with tax", fmt.Sprintf("=B%d*%s+B%d", totalRow, taxFactor, discountRow)}
 	if nPeople > 0 {
 		taxRowVals = append(taxRowVals, "", "")
 		for i := range people {
 			col := colLetter(sheetFirstPerson + i + 1)
-			taxRowVals = append(taxRowVals, taxTotalFormula(col, totalRow, discountRow, taxCell))
+			taxRowVals = append(taxRowVals, taxTotalFormula(col, totalRow, discountRow, taxFactor))
 		}
 	} else {
 		taxRowVals = append(taxRowVals, "", "")
@@ -246,15 +250,13 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 	rows = append(rows, taxRowVals)
 
 	rows = append(rows, nil)
-	taxLabel := "Tax multiplier"
-	if len(tax) > 0 {
-		names := make([]string, 0, len(tax))
-		for _, t := range tax {
-			names = append(names, fmt.Sprintf("%s × %g", t.Name, t.Multiplier))
+	for _, t := range tax {
+		label := strings.TrimSpace(t.Name)
+		if label == "" {
+			label = "Tax"
 		}
-		taxLabel = "Tax multiplier (" + strings.Join(names, ", ") + ")"
+		rows = append(rows, []any{label, t.Multiplier})
 	}
-	rows = append(rows, []any{taxLabel, roundMoney(taxProduct)})
 	rows = append(rows, []any{"Bill total", roundMoney(totalInBill)})
 
 	layout := SheetLayout{
@@ -264,7 +266,9 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 		DiscountRow:    discountRow,
 		TotalRow:       totalRow,
 		TaxTotalRow:    taxTotalRow,
-		TaxProductCell: taxCell,
+		TaxProductCell: taxFactor,
+		TaxStartRow:    taxStartRow,
+		LastDataRow:    taxTotalRow + 1 + len(tax) + 1,
 		PersonCount:    nPeople,
 		LastColumn:     4 + nPeople,
 	}
@@ -297,8 +301,19 @@ func foodTotalFormula(col string, itemStart, itemEnd int) string {
 	return fmt.Sprintf("=SUMPRODUCT((%s%d:%s%d=TRUE)*$D$%d:$D$%d)", col, itemStart, col, itemEnd, itemStart, itemEnd)
 }
 
-func taxTotalFormula(col string, totalRow, discountRow int, taxCell string) string {
-	return fmt.Sprintf("=%s%d*%s+IF(%s%d=TRUE,$D$%d,0)", col, totalRow, taxCell, col, discountRow, discountRow)
+func taxTotalFormula(col string, totalRow, discountRow int, taxFactor string) string {
+	return fmt.Sprintf("=%s%d*%s+IF(%s%d=TRUE,$D$%d,0)", col, totalRow, taxFactor, col, discountRow, discountRow)
+}
+
+func taxFactorExpr(tax []Tax, firstRow int) string {
+	if len(tax) == 0 {
+		return "1"
+	}
+	parts := make([]string, 0, len(tax))
+	for i := range tax {
+		parts = append(parts, fmt.Sprintf("$B$%d", firstRow+i))
+	}
+	return strings.Join(parts, "*")
 }
 
 // ColLetter returns the 1-based A1 column name (1=A, 27=AA).

@@ -150,13 +150,29 @@ func TestBuildSheetLayout(t *testing.T) {
 	}
 
 	withTax := layout.Values[5]
+	if withTax[1] != "=B5*$B$8+B4" {
+		t.Fatalf("total with tax formula=%v", withTax[1])
+	}
 	if withTax[4] != "=E5*$B$8+IF(E4=TRUE,$D$4,0)" {
-		t.Fatalf("alice tax total=%v (tax cell %s)", withTax[4], layout.TaxProductCell)
+		t.Fatalf("alice tax total=%v (tax factor %s)", withTax[4], layout.TaxProductCell)
+	}
+	if layout.TaxProductCell != "$B$8" {
+		t.Fatalf("tax factor=%s", layout.TaxProductCell)
 	}
 
 	taxRow := layout.Values[7]
-	if taxRow[1] != 1.1 {
-		t.Fatalf("tax product=%v", taxRow[1])
+	if taxRow[0] != "GST" || taxRow[1] != 1.1 {
+		t.Fatalf("tax row=%v", taxRow)
+	}
+	if layout.TaxStartRow != 8 {
+		t.Fatalf("tax start=%d", layout.TaxStartRow)
+	}
+	bill := layout.Values[8]
+	if bill[0] != "Bill total" || bill[1] != 41.8 {
+		t.Fatalf("bill total=%v", bill)
+	}
+	if layout.LastDataRow != 9 {
+		t.Fatalf("last data row=%d", layout.LastDataRow)
 	}
 
 	if layout.CheckboxRange.StartRow != 1 || layout.CheckboxRange.EndRow != 4 {
@@ -164,6 +180,39 @@ func TestBuildSheetLayout(t *testing.T) {
 	}
 	if layout.CheckboxRange.StartColumn != 4 || layout.CheckboxRange.EndColumn != 6 {
 		t.Fatalf("checkbox cols=%+v", layout.CheckboxRange)
+	}
+}
+
+func TestBuildSheetLayoutMultipliesAllTaxes(t *testing.T) {
+	t.Parallel()
+	items := []UnitItem{
+		{ID: "1", Name: "Pizza", Quantity: 1, UnitPrice: 10, PollOption: "1. Pizza x1 $10"},
+	}
+	tax := []Tax{
+		{Name: "Service", Multiplier: 1.2},
+		{Name: "GST", Multiplier: 1.09},
+	}
+	people := []Participant{{Key: "alice", Name: "Alice"}}
+	layout := BuildSheetLayout("Dinner", items, tax, 0, 13.08, map[string][]string{"1": {"alice"}}, people)
+
+	if layout.TaxProductCell != "$B$7*$B$8" {
+		t.Fatalf("tax factor=%s", layout.TaxProductCell)
+	}
+	withTax := layout.Values[4]
+	if withTax[1] != "=B4*$B$7*$B$8+B3" {
+		t.Fatalf("total with tax=%v", withTax[1])
+	}
+	if withTax[4] != "=E4*$B$7*$B$8+IF(E3=TRUE,$D$3,0)" {
+		t.Fatalf("alice tax total=%v", withTax[4])
+	}
+	if layout.Values[6][0] != "Service" || layout.Values[6][1] != 1.2 {
+		t.Fatalf("service row=%v", layout.Values[6])
+	}
+	if layout.Values[7][0] != "GST" || layout.Values[7][1] != 1.09 {
+		t.Fatalf("gst row=%v", layout.Values[7])
+	}
+	if layout.TaxStartRow != 7 || layout.LastDataRow != 9 {
+		t.Fatalf("tax start=%d last=%d", layout.TaxStartRow, layout.LastDataRow)
 	}
 }
 

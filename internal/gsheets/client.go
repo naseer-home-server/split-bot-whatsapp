@@ -169,6 +169,10 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 		lastCol = 4
 	}
 	tableEnd := int64(layout.TaxTotalRow)
+	lastData := int64(layout.LastDataRow)
+	if lastData < tableEnd {
+		lastData = tableEnd + 3
+	}
 	reqs := []*sheets.Request{
 		{
 			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
@@ -179,7 +183,7 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 				Fields: "gridProperties.frozenRowCount",
 			},
 		},
-		repeatFormat(gid, 0, tableEnd+4, 0, lastCol, &sheets.CellData{
+		repeatFormat(gid, 0, lastData, 0, lastCol, &sheets.CellData{
 			UserEnteredFormat: &sheets.CellFormat{
 				BackgroundColor:   rgb(1, 1, 1),
 				VerticalAlignment: "MIDDLE",
@@ -247,12 +251,21 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 				TextFormat:      &sheets.TextFormat{Bold: true},
 			},
 		}, "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"),
-		repeatFormat(gid, int64(layout.TaxTotalRow+1), int64(layout.TaxTotalRow+3), 0, 2, &sheets.CellData{
+		repeatFormat(gid, int64(layout.TaxTotalRow+1), lastData, 0, 2, &sheets.CellData{
 			UserEnteredFormat: &sheets.CellFormat{
 				TextFormat: &sheets.TextFormat{ForegroundColor: rgb(0.4, 0.4, 0.4), Italic: true},
 			},
 		}, "userEnteredFormat.textFormat"),
 	)
+
+	if layout.TaxStartRow > 0 {
+		taxStart := int64(layout.TaxStartRow - 1)
+		taxEnd := int64(layout.LastDataRow - 1)
+		if taxEnd > taxStart {
+			reqs = append(reqs, repeatFormat(gid, taxStart, taxEnd, 1, 2, money, "userEnteredFormat.numberFormat"))
+		}
+	}
+	reqs = append(reqs, repeatFormat(gid, lastData-1, lastData, 1, 2, money, "userEnteredFormat.numberFormat"))
 
 	if layout.PersonCount > 0 && layout.CheckboxRange.EndColumn > layout.CheckboxRange.StartColumn {
 		r := layout.CheckboxRange
