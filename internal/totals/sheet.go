@@ -14,6 +14,11 @@ const (
 	sheetFirstPerson  = 4
 )
 
+// SheetFirstPersonCol is the 0-based spreadsheet column of the first person checkbox.
+func SheetFirstPersonCol() int {
+	return sheetFirstPerson
+}
+
 // Participant is one person column in the exported sheet.
 type Participant struct {
 	Key  string // WhatsApp user id, or extra name if they are not in assignments
@@ -34,6 +39,9 @@ type SheetLayout struct {
 	LastDataRow    int    // 1-based last row with values
 	PersonCount    int
 	LastColumn     int // exclusive, 0-based
+	TotalsID       int
+	People         []Participant
+	ItemIDs        []string // item row order; spreadsheet row 2 is index 0
 }
 
 // GridRange is a 0-based half-open range (Sheets API style).
@@ -271,6 +279,8 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 		LastDataRow:    taxTotalRow + 1 + len(tax) + 1,
 		PersonCount:    nPeople,
 		LastColumn:     4 + nPeople,
+		People:         append([]Participant(nil), people...),
+		ItemIDs:        itemIDsOf(items),
 	}
 	if nPeople > 0 && nItems+1 > 0 {
 		endRow := discountRow // 1-based inclusive discount
@@ -339,4 +349,12 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func itemIDsOf(items []UnitItem) []string {
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	return ids
 }

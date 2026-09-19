@@ -90,8 +90,9 @@ var ErrCollectivePollNotFound = errors.New("collective poll not found for poll c
 
 // HandlePollVote handles an incoming PollUpdateMessage: verifies kind, decrypts the vote payload, derives sender and
 // poll creation stanza id, then finds the collective poll and upserts this user's vote slice for that stanza id
-// (hex option hashes); other shards in votes JSON are unchanged. If a splitbot_totals row is linked to the poll,
-// assignments are merged from the current vote snapshot.
+// (hex option hashes); other shards in votes JSON are unchanged. If a splitbot_totals row is linked to the poll
+// and has not been exported to a sheet, assignments are merged from the current vote snapshot. If it has been
+// exported, the voter is asked to update the Google Sheet instead.
 func (h *Handler) HandlePollVote(ctx context.Context, evt *events.Message) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -110,12 +111,22 @@ func (h *Handler) HandlePollVote(ctx context.Context, evt *events.Message) error
 		return err
 	}
 	selected := pollVoteSelectedHashesHex(vote)
-	return h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var sync pollTotalsSync
+	err = h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := upsertPollUserVote(tx, poll.ID, userID, stanzaID, selected); err != nil {
 			return err
 		}
-		return h.syncTotalsAssignmentsFromPoll(tx, poll.ID)
+		var syncErr error
+		sync, syncErr = h.syncTotalsAssignmentsFromPoll(tx, poll.ID)
+		return syncErr
 	})
+	if err != nil {
+		return err
+	}
+	if sync.SkipForSheet {
+		h.notifyExportedSheetVote(sync.GroupID, userID, sync.SheetGID)
+	}
+	return nil
 }
 
 // parsePollVoteInput validates evt as a poll vote, decrypts payload, and returns creation stanza id, sender id, proto vote.

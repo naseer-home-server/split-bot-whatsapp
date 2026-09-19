@@ -301,6 +301,9 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 	if err != nil {
 		return fmt.Errorf("format sheet: %w", err)
 	}
+	if err := c.replaceSplitMetadata(ctx, gid, layout); err != nil {
+		return err
+	}
 	return nil
 }
 

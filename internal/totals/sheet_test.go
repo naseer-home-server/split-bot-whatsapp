@@ -115,6 +115,12 @@ func TestBuildSheetLayout(t *testing.T) {
 	if layout.LastColumn != 6 {
 		t.Fatalf("last column=%d", layout.LastColumn)
 	}
+	if len(layout.ItemIDs) != 2 || layout.ItemIDs[0] != "1" || layout.ItemIDs[1] != "2" {
+		t.Fatalf("item ids=%v", layout.ItemIDs)
+	}
+	if len(layout.People) != 2 || layout.People[0].Key != "alice" {
+		t.Fatalf("people=%v", layout.People)
+	}
 
 	header := layout.Values[0]
 	if header[0] != "Item" || header[1] != "Price" || header[2] != "Divided by" || header[3] != "Per person" || header[4] != "Alice" || header[5] != "Bob" {

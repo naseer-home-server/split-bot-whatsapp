@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
+	"github.com/naseer2426/split-bot-whatsapp/internal/config"
 	"github.com/naseer2426/split-bot-whatsapp/internal/db"
+	"github.com/naseer2426/split-bot-whatsapp/internal/gsheets"
 	"github.com/naseer2426/split-bot-whatsapp/internal/totals"
 )
 
@@ -68,10 +71,20 @@ func (h *Handler) CreateBillTotals(ctx context.Context, groupID, title string, i
 }
 
 // GetBillAssignments loads a totals row and returns the computed assignment snapshot.
+// If the bill has been exported (sheet_id is set), assignments are pulled from the sheet first.
 func (h *Handler) GetBillAssignments(ctx context.Context, totalsID int) (*db.SplitbotTotals, totals.Snapshot, error) {
 	row, err := h.loadTotals(ctx, totalsID)
 	if err != nil {
 		return nil, totals.Snapshot{}, err
+	}
+	if totals.HasSheetExport(row.SheetID) {
+		if err := h.syncAssignmentsFromSheet(ctx, row); err != nil {
+			return nil, totals.Snapshot{}, err
+		}
+		row, err = h.loadTotals(ctx, totalsID)
+		if err != nil {
+			return nil, totals.Snapshot{}, err
+		}
 	}
 	snap, err := snapshotFromRow(row)
 	if err != nil {
@@ -146,19 +159,63 @@ func snapshotFromRow(row *db.SplitbotTotals) (totals.Snapshot, error) {
 	return totals.BuildSnapshot(units, tax, row.Discount, row.TotalInBill, row.CalculatedTotal, assignments), nil
 }
 
-func (h *Handler) syncTotalsAssignmentsFromPoll(tx *gorm.DB, pollID int) error {
-	var row db.SplitbotTotals
-	err := tx.Where("poll_id = ?", pollID).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+func (h *Handler) syncAssignmentsFromSheet(ctx context.Context, row *db.SplitbotTotals) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	client, err := gsheets.NewClient(ctx)
+	if err != nil {
+		return fmt.Errorf("sync sheet assignments: %w", err)
+	}
+	parsed, err := client.ReadAssignments(ctx, strings.TrimSpace(*row.SheetID))
+	if errors.Is(err, gsheets.ErrNoSplitMetadata) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("load totals for poll %d: %w", pollID, err)
+		return fmt.Errorf("sync sheet assignments: %w", err)
+	}
+	units, err := totals.UnmarshalItems(row.Items)
+	if err != nil {
+		return err
+	}
+	merged := totals.AssignmentsFromSheet(units, parsed)
+	raw, err := totals.MarshalAssignments(merged)
+	if err != nil {
+		return fmt.Errorf("marshal assignments: %w", err)
+	}
+	row.Assignments = raw
+	if err := h.db.WithContext(ctx).Save(row).Error; err != nil {
+		return fmt.Errorf("save sheet assignments: %w", err)
+	}
+	return nil
+}
+
+type pollTotalsSync struct {
+	SkipForSheet bool
+	GroupID      string
+	SheetGID     string
+}
+
+func (h *Handler) syncTotalsAssignmentsFromPoll(tx *gorm.DB, pollID int) (pollTotalsSync, error) {
+	var row db.SplitbotTotals
+	err := tx.Where("poll_id = ?", pollID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return pollTotalsSync{}, nil
+	}
+	if err != nil {
+		return pollTotalsSync{}, fmt.Errorf("load totals for poll %d: %w", pollID, err)
+	}
+	if totals.HasSheetExport(row.SheetID) {
+		return pollTotalsSync{
+			SkipForSheet: true,
+			GroupID:      row.GroupID,
+			SheetGID:     strings.TrimSpace(*row.SheetID),
+		}, nil
 	}
 
 	status, err := getPollStatus(tx, pollID)
 	if err != nil {
-		return err
+		return pollTotalsSync{}, err
 	}
 	votersByOption := make(map[string][]string, len(status))
 	for _, opt := range status {
@@ -167,20 +224,59 @@ func (h *Handler) syncTotalsAssignmentsFromPoll(tx *gorm.DB, pollID int) error {
 
 	units, err := totals.UnmarshalItems(row.Items)
 	if err != nil {
-		return err
+		return pollTotalsSync{}, err
 	}
 	existing, err := totals.UnmarshalAssignments(row.Assignments)
 	if err != nil {
-		return err
+		return pollTotalsSync{}, err
 	}
 	merged := totals.MergePollVotes(existing, units, votersByOption)
 	raw, err := totals.MarshalAssignments(merged)
 	if err != nil {
-		return fmt.Errorf("marshal assignments: %w", err)
+		return pollTotalsSync{}, fmt.Errorf("marshal assignments: %w", err)
 	}
 	row.Assignments = raw
 	if err := tx.Save(&row).Error; err != nil {
-		return fmt.Errorf("save totals assignments: %w", err)
+		return pollTotalsSync{}, fmt.Errorf("save totals assignments: %w", err)
 	}
-	return nil
+	return pollTotalsSync{}, nil
+}
+
+func (h *Handler) notifyExportedSheetVote(groupID, userID, sheetGID string) {
+	mention := mentionUser(userID)
+	url := gsheets.TabURL(config.Get().Google.SpreadsheetID, sheetGID)
+	var b strings.Builder
+	if mention != "" {
+		b.WriteString(mention)
+		b.WriteString(" ")
+	}
+	b.WriteString("This bill is already in a Google Sheet. Please update your items there instead of voting on the poll.")
+	if url != "" {
+		b.WriteString("\n")
+		b.WriteString(url)
+	}
+	if err := h.sendToChatID(groupID, b.String()); err != nil {
+		fmt.Printf("notify exported sheet vote: %v\n", err)
+	}
+}
+
+func mentionUser(userID string) string {
+	userID = strings.TrimSpace(userID)
+	userID = strings.TrimPrefix(userID, "+")
+	userID = strings.TrimSuffix(userID, "@lid")
+	if userID == "" {
+		return ""
+	}
+	return "@" + userID
+}
+
+func (h *Handler) sendToChatID(chatID, message string) error {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return fmt.Errorf("empty chat id")
+	}
+	if strings.Contains(chatID, "@") {
+		return h.SendMessageToChat(message, chatID)
+	}
+	return h.SendMessageToGroup(message, chatID)
 }

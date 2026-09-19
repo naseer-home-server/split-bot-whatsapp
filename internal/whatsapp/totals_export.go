@@ -29,6 +29,7 @@ func (h *Handler) ExportBillToGoogleSheet(ctx context.Context, totalsID int, ext
 		title = *row.Title
 	}
 	layout := totals.BuildSheetLayout(totals.SheetTabTitle(row.ID, title), snap.Items, snap.Tax, snap.Discount, snap.TotalInBill, snap.Assignments, people)
+	layout.TotalsID = row.ID
 
 	existing := ""
 	if row.SheetID != nil {
