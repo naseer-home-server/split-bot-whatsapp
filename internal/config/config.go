@@ -45,7 +45,7 @@ type GrafanaConfig struct {
 type GoogleConfig struct {
 	ServiceAccountJSON string // GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON or file path)
 	CredentialsFile    string // GOOGLE_APPLICATION_CREDENTIALS
-	DriveFolderID      string // GOOGLE_DRIVE_FOLDER_ID
+	SpreadsheetID      string // GOOGLE_SPREADSHEET_ID
 }
 
 // Config is the root application configuration.
@@ -92,7 +92,7 @@ func fromEnv() *Config {
 		Google: GoogleConfig{
 			ServiceAccountJSON: strings.TrimSpace(os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON")),
 			CredentialsFile:    strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
-			DriveFolderID:      strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_FOLDER_ID")),
+			SpreadsheetID:      strings.TrimSpace(os.Getenv("GOOGLE_SPREADSHEET_ID")),
 		},
 	}
 }

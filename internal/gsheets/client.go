@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
-	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 
@@ -14,38 +14,30 @@ import (
 	"github.com/naseer2426/split-bot-whatsapp/internal/totals"
 )
 
-const spreadsheetMIME = "application/vnd.google-apps.spreadsheet"
-
-// Client talks to Google Drive + Sheets using a service account.
+// Client writes tabs into a user-owned spreadsheet using a service account.
 type Client struct {
-	folderID string
-	sheets   *sheets.Service
-	drive    *drive.Service
+	spreadsheetID string
+	sheets        *sheets.Service
 }
 
-// NewClient builds a Google client from env config. Returns an error if credentials or folder id are missing.
+// NewClient builds a Google Sheets client from env config.
 func NewClient(ctx context.Context) (*Client, error) {
 	cfg := config.Get().Google
-	if cfg.DriveFolderID == "" {
-		return nil, fmt.Errorf("GOOGLE_DRIVE_FOLDER_ID is required")
+	if cfg.SpreadsheetID == "" {
+		return nil, fmt.Errorf("GOOGLE_SPREADSHEET_ID is required")
 	}
 	creds, err := loadCredentials(cfg)
 	if err != nil {
 		return nil, err
 	}
-	opts := []option.ClientOption{
+	sheetSvc, err := sheets.NewService(ctx,
 		option.WithCredentialsJSON(creds),
-		option.WithScopes(sheets.SpreadsheetsScope, drive.DriveScope),
-	}
-	sheetSvc, err := sheets.NewService(ctx, opts...)
+		option.WithScopes(sheets.SpreadsheetsScope),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("sheets client: %w", err)
 	}
-	driveSvc, err := drive.NewService(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("drive client: %w", err)
-	}
-	return &Client{folderID: cfg.DriveFolderID, sheets: sheetSvc, drive: driveSvc}, nil
+	return &Client{spreadsheetID: cfg.SpreadsheetID, sheets: sheetSvc}, nil
 }
 
 func loadCredentials(cfg config.GoogleConfig) ([]byte, error) {
@@ -70,76 +62,84 @@ func loadCredentials(cfg config.GoogleConfig) ([]byte, error) {
 	return nil, fmt.Errorf("GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS is required")
 }
 
-// ExportResult is the created or updated spreadsheet.
+// ExportResult identifies the workbook tab that was written.
 type ExportResult struct {
 	SpreadsheetID string
+	SheetGID      int64
 	URL           string
 }
 
-// Export writes layout into an existing spreadsheet (if id is set and still exists) or creates a new one in the Drive folder.
-func (c *Client) Export(ctx context.Context, layout totals.SheetLayout, existingID string) (*ExportResult, error) {
-	id := strings.TrimSpace(existingID)
-	if id != "" {
-		_, err := c.sheets.Spreadsheets.Get(id).Context(ctx).Fields("spreadsheetId").Do()
-		if err != nil {
-			id = ""
+// Export writes layout into an existing tab (by gid) or adds a new tab on the configured spreadsheet.
+func (c *Client) Export(ctx context.Context, layout totals.SheetLayout, existingGID string) (*ExportResult, error) {
+	ss, err := c.sheets.Spreadsheets.Get(c.spreadsheetID).Context(ctx).Fields("spreadsheetId,sheets.properties").Do()
+	if err != nil {
+		return nil, fmt.Errorf("load spreadsheet: %w", err)
+	}
+
+	title := sanitizeTabTitle(layout.Title)
+	var gid int64
+	var tabName string
+
+	if parsed, ok := parseGID(existingGID); ok {
+		if props := tabByGID(ss, parsed); props != nil {
+			gid = props.SheetId
+			tabName = props.Title
+			if tabName != title && !tabTitleTaken(ss, title, gid) {
+				if err := c.renameTab(ctx, gid, title); err == nil {
+					tabName = title
+				}
+			}
 		}
 	}
-	if id == "" {
-		created, err := c.createSpreadsheet(ctx, layout.Title)
+	if tabName == "" {
+		title = uniqueTabTitle(ss, title)
+		gid, tabName, err = c.addTab(ctx, title)
 		if err != nil {
 			return nil, err
 		}
-		id = created
-	} else {
-		_, _ = c.drive.Files.Update(id, &drive.File{Name: layout.Title}).Context(ctx).SupportsAllDrives(true).Do()
 	}
 
-	if err := c.writeLayout(ctx, id, layout); err != nil {
+	if err := c.writeLayout(ctx, gid, tabName, layout); err != nil {
 		return nil, err
 	}
-	_ = c.shareAnyoneWithLink(ctx, id)
 
-	url := fmt.Sprintf("https://docs.google.com/spreadsheets/d/%s/edit", id)
-	file, err := c.drive.Files.Get(id).Context(ctx).SupportsAllDrives(true).Fields("webViewLink").Do()
-	if err == nil && file.WebViewLink != "" {
-		url = file.WebViewLink
-	}
-	return &ExportResult{SpreadsheetID: id, URL: url}, nil
+	url := fmt.Sprintf("https://docs.google.com/spreadsheets/d/%s/edit#gid=%d", c.spreadsheetID, gid)
+	return &ExportResult{SpreadsheetID: c.spreadsheetID, SheetGID: gid, URL: url}, nil
 }
 
-func (c *Client) createSpreadsheet(ctx context.Context, title string) (string, error) {
-	file := &drive.File{
-		Name:     title,
-		MimeType: spreadsheetMIME,
-		Parents:  []string{c.folderID},
-	}
-	created, err := c.drive.Files.Create(file).Context(ctx).SupportsAllDrives(true).Fields("id").Do()
+func (c *Client) addTab(ctx context.Context, title string) (int64, string, error) {
+	resp, err := c.sheets.Spreadsheets.BatchUpdate(c.spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{{
+			AddSheet: &sheets.AddSheetRequest{
+				Properties: &sheets.SheetProperties{Title: title},
+			},
+		}},
+	}).Context(ctx).Do()
 	if err != nil {
-		return "", fmt.Errorf("create spreadsheet in folder: %w", err)
+		return 0, "", fmt.Errorf("add sheet tab: %w", err)
 	}
-	if created.Id == "" {
-		return "", fmt.Errorf("create spreadsheet: empty id")
+	if len(resp.Replies) == 0 || resp.Replies[0].AddSheet == nil || resp.Replies[0].AddSheet.Properties == nil {
+		return 0, "", fmt.Errorf("add sheet tab: empty reply")
 	}
-	return created.Id, nil
+	props := resp.Replies[0].AddSheet.Properties
+	return props.SheetId, props.Title, nil
 }
 
-func (c *Client) writeLayout(ctx context.Context, spreadsheetID string, layout totals.SheetLayout) error {
-	ss, err := c.sheets.Spreadsheets.Get(spreadsheetID).Context(ctx).Fields("sheets.properties").Do()
-	if err != nil {
-		return fmt.Errorf("load spreadsheet: %w", err)
-	}
-	if len(ss.Sheets) == 0 {
-		return fmt.Errorf("spreadsheet has no sheets")
-	}
-	props := ss.Sheets[0].Properties
-	sheetID := props.SheetId
-	tabName := props.Title
-	if tabName == "" {
-		tabName = "Sheet1"
-	}
+func (c *Client) renameTab(ctx context.Context, gid int64, title string) error {
+	_, err := c.sheets.Spreadsheets.BatchUpdate(c.spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{{
+			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+				Properties: &sheets.SheetProperties{SheetId: gid, Title: title},
+				Fields:     "title",
+			},
+		}},
+	}).Context(ctx).Do()
+	return err
+}
 
-	_, err = c.sheets.Spreadsheets.Values.Clear(spreadsheetID, tabName, &sheets.ClearValuesRequest{}).Context(ctx).Do()
+func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, layout totals.SheetLayout) error {
+	quoted := quoteTab(tabName)
+	_, err := c.sheets.Spreadsheets.Values.Clear(c.spreadsheetID, quoted, &sheets.ClearValuesRequest{}).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("clear sheet: %w", err)
 	}
@@ -152,7 +152,7 @@ func (c *Client) writeLayout(ctx context.Context, spreadsheetID string, layout t
 		}
 		values[i] = append([]interface{}(nil), row...)
 	}
-	_, err = c.sheets.Spreadsheets.Values.Update(spreadsheetID, tabName+"!A1", &sheets.ValueRange{
+	_, err = c.sheets.Spreadsheets.Values.Update(c.spreadsheetID, quoted+"!A1", &sheets.ValueRange{
 		Values: values,
 	}).ValueInputOption("USER_ENTERED").Context(ctx).Do()
 	if err != nil {
@@ -165,20 +165,14 @@ func (c *Client) writeLayout(ctx context.Context, spreadsheetID string, layout t
 		},
 	}
 	reqs := []*sheets.Request{
-		{
-			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
-				Properties: &sheets.SheetProperties{SheetId: sheetID, Title: "Split"},
-				Fields:     "title",
-			},
-		},
-		repeatNumberFormat(sheetID, 1, int64(layout.TaxTotalRow), 1, 2, money),
-		repeatNumberFormat(sheetID, 1, int64(layout.DiscountRow), 3, 4, money),
+		repeatNumberFormat(gid, 1, int64(layout.TaxTotalRow), 1, 2, money),
+		repeatNumberFormat(gid, 1, int64(layout.DiscountRow), 3, 4, money),
 	}
 	if layout.PersonCount > 0 && layout.CheckboxRange.EndColumn > layout.CheckboxRange.StartColumn {
 		r := layout.CheckboxRange
 		reqs = append(reqs, &sheets.Request{
 			RepeatCell: &sheets.RepeatCellRequest{
-				Range: grid(sheetID, int64(r.StartRow), int64(r.EndRow), int64(r.StartColumn), int64(r.EndColumn)),
+				Range: grid(gid, int64(r.StartRow), int64(r.EndRow), int64(r.StartColumn), int64(r.EndColumn)),
 				Cell: &sheets.CellData{
 					DataValidation: &sheets.DataValidationRule{
 						Condition:    &sheets.BooleanCondition{Type: "BOOLEAN"},
@@ -190,7 +184,7 @@ func (c *Client) writeLayout(ctx context.Context, spreadsheetID string, layout t
 			},
 		})
 		reqs = append(reqs, repeatNumberFormat(
-			sheetID,
+			gid,
 			int64(layout.TotalRow-1),
 			int64(layout.TaxTotalRow),
 			int64(r.StartColumn),
@@ -199,13 +193,72 @@ func (c *Client) writeLayout(ctx context.Context, spreadsheetID string, layout t
 		))
 	}
 
-	_, err = c.sheets.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
+	_, err = c.sheets.Spreadsheets.BatchUpdate(c.spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: reqs,
 	}).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("format sheet: %w", err)
 	}
 	return nil
+}
+
+func parseGID(raw string) (int64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func tabByGID(ss *sheets.Spreadsheet, gid int64) *sheets.SheetProperties {
+	for _, s := range ss.Sheets {
+		if s.Properties != nil && s.Properties.SheetId == gid {
+			return s.Properties
+		}
+	}
+	return nil
+}
+
+func tabTitleTaken(ss *sheets.Spreadsheet, title string, exceptGID int64) bool {
+	for _, s := range ss.Sheets {
+		if s.Properties != nil && s.Properties.Title == title && s.Properties.SheetId != exceptGID {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueTabTitle(ss *sheets.Spreadsheet, base string) string {
+	if !tabTitleTaken(ss, base, -1) {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s (%d)", base, i)
+		if !tabTitleTaken(ss, candidate, -1) {
+			return candidate
+		}
+	}
+}
+
+func sanitizeTabTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Bill split"
+	}
+	replacer := strings.NewReplacer(":", " ", "\\", " ", "/", " ", "?", " ", "*", " ", "[", " ", "]", " ")
+	title = strings.Join(strings.Fields(replacer.Replace(title)), " ")
+	if len(title) > 100 {
+		title = title[:100]
+	}
+	return title
+}
+
+func quoteTab(name string) string {
+	return "'" + strings.ReplaceAll(name, "'", "''") + "'"
 }
 
 func grid(sheetID, startRow, endRow, startCol, endCol int64) *sheets.GridRange {
@@ -226,15 +279,4 @@ func repeatNumberFormat(sheetID, startRow, endRow, startCol, endCol int64, cell 
 			Fields: "userEnteredFormat.numberFormat",
 		},
 	}
-}
-
-func (c *Client) shareAnyoneWithLink(ctx context.Context, fileID string) error {
-	_, err := c.drive.Permissions.Create(fileID, &drive.Permission{
-		Type: "anyone",
-		Role: "writer",
-	}).Context(ctx).SupportsAllDrives(true).Do()
-	if err != nil {
-		return fmt.Errorf("share spreadsheet: %w", err)
-	}
-	return nil
 }

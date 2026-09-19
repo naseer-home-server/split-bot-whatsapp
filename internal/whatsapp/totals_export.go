@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,13 +42,13 @@ func (h *Handler) ExportBillToGoogleSheet(ctx context.Context, totalsID int, ext
 	}
 
 	now := time.Now().UTC()
-	id := result.SpreadsheetID
-	row.SheetID = &id
+	gid := strconv.FormatInt(result.SheetGID, 10)
+	row.SheetID = &gid
 	row.LastExportedAt = &now
 	if err := h.db.WithContext(ctx).Save(row).Error; err != nil {
 		return "", "", fmt.Errorf("save sheet_id: %w", err)
 	}
-	return result.SpreadsheetID, result.URL, nil
+	return gid, result.URL, nil
 }
 
 func displayNameFunc() func(string) string {
