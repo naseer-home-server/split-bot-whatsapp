@@ -24,6 +24,9 @@ HERMES_URL=http://hermes:8765
 HERMES_API_KEY=optional-shared-secret
 BOT_NAME=YourBot
 PORT=8080
+GOOGLE_DRIVE_FOLDER_ID=your-drive-folder-id
+GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+# or GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
 Hermes must set `WHATSAPP_INTERNAL_API_URL` to this service (e.g. `http://split-bot-whatsapp:8080`) and the same API key.

@@ -56,6 +56,8 @@ type SplitbotTotals struct {
 	TotalInBill     float64         `gorm:"column:total_in_bill;type:numeric"`
 	CalculatedTotal float64         `gorm:"column:calculated_total;type:numeric"`
 	Assignments     json.RawMessage `gorm:"column:assignments;type:jsonb"`
+	SheetID         *string         `gorm:"column:sheet_id;type:varchar"`
+	LastExportedAt  *time.Time      `gorm:"column:last_exported_at;type:timestamptz"`
 	CreatedAt       time.Time       `gorm:"column:created_at;type:timestamptz"`
 	UpdatedAt       time.Time       `gorm:"column:updated_at;type:timestamptz"`
 }

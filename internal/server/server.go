@@ -63,4 +63,5 @@ func (s *Server) setupRoutes() {
 	s.router.POST("/totals/create", s.totalsCreateHandler)
 	s.router.GET("/totals/assignments", s.totalsAssignmentsGetHandler)
 	s.router.PUT("/totals/assignments", s.totalsAssignmentsPutHandler)
+	s.router.POST("/totals/export-sheet", s.totalsExportSheetHandler)
 }

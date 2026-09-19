@@ -42,6 +42,12 @@ type GrafanaConfig struct {
 	AlertGroupID string
 }
 
+type GoogleConfig struct {
+	ServiceAccountJSON string // GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON or file path)
+	CredentialsFile    string // GOOGLE_APPLICATION_CREDENTIALS
+	DriveFolderID      string // GOOGLE_DRIVE_FOLDER_ID
+}
+
 // Config is the root application configuration.
 type Config struct {
 	Server   ServerConfig   `validate:"required"`
@@ -51,6 +57,7 @@ type Config struct {
 	Nanobot  NanobotConfig  `validate:"required"`
 	Hermes   HermesConfig   `validate:"required"`
 	Grafana  GrafanaConfig
+	Google   GoogleConfig
 }
 
 var (
@@ -81,6 +88,11 @@ func fromEnv() *Config {
 		},
 		Grafana: GrafanaConfig{
 			AlertGroupID: strings.TrimSpace(os.Getenv("GRAFANA_ALERT_GROUP_ID")),
+		},
+		Google: GoogleConfig{
+			ServiceAccountJSON: strings.TrimSpace(os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON")),
+			CredentialsFile:    strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
+			DriveFolderID:      strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_FOLDER_ID")),
 		},
 	}
 }

@@ -27,6 +27,11 @@ type totalsAssignmentsRequest struct {
 	Assignments map[string][]string `json:"assignments" binding:"required"`
 }
 
+type totalsExportSheetRequest struct {
+	TotalsID    int      `json:"totals_id" binding:"required"`
+	ExtraPeople []string `json:"extra_people"`
+}
+
 func (s *Server) totalsCreateHandler(c *gin.Context) {
 	var req totalsCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -119,6 +124,35 @@ func (s *Server) totalsAssignmentsPutHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, totalsSnapshotResponse(row, snap))
 }
 
+func (s *Server) totalsExportSheetHandler(c *gin.Context) {
+	var req totalsExportSheetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid request body",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	sheetID, url, err := s.handler.ExportBillToGoogleSheet(c.Request.Context(), req.TotalsID, req.ExtraPeople)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeTotalsLoadError(c, err)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to export sheet",
+			"details": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status":   "success",
+		"sheet_id": sheetID,
+		"url":      url,
+	})
+}
+
 func totalsSnapshotResponse(row *db.SplitbotTotals, snap totals.Snapshot) gin.H {
 	return gin.H{
 		"status":           "success",
@@ -135,6 +169,8 @@ func totalsSnapshotResponse(row *db.SplitbotTotals, snap totals.Snapshot) gin.H 
 		"unassigned":       snap.Unassigned,
 		"shares":           snap.Shares,
 		"unassigned_owed":  snap.UnassignedOwed,
+		"sheet_id":         row.SheetID,
+		"last_exported_at": row.LastExportedAt,
 	}
 }
 
