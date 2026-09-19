@@ -90,7 +90,8 @@ var ErrCollectivePollNotFound = errors.New("collective poll not found for poll c
 
 // HandlePollVote handles an incoming PollUpdateMessage: verifies kind, decrypts the vote payload, derives sender and
 // poll creation stanza id, then finds the collective poll and upserts this user's vote slice for that stanza id
-// (hex option hashes); other shards in votes JSON are unchanged.
+// (hex option hashes); other shards in votes JSON are unchanged. If a splitbot_totals row is linked to the poll,
+// assignments are merged from the current vote snapshot.
 func (h *Handler) HandlePollVote(ctx context.Context, evt *events.Message) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -109,8 +110,12 @@ func (h *Handler) HandlePollVote(ctx context.Context, evt *events.Message) error
 		return err
 	}
 	selected := pollVoteSelectedHashesHex(vote)
-	tx := h.db.WithContext(ctx)
-	return upsertPollUserVote(tx, poll.ID, userID, stanzaID, selected)
+	return h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := upsertPollUserVote(tx, poll.ID, userID, stanzaID, selected); err != nil {
+			return err
+		}
+		return h.syncTotalsAssignmentsFromPoll(tx, poll.ID)
+	})
 }
 
 // parsePollVoteInput validates evt as a poll vote, decrypts payload, and returns creation stanza id, sender id, proto vote.
@@ -213,12 +218,16 @@ func (h *Handler) GetPollStatus(ctx context.Context, pollID int) ([]OptionSelect
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	return getPollStatus(h.db.WithContext(ctx), pollID)
+}
+
+func getPollStatus(tx *gorm.DB, pollID int) ([]OptionSelection, error) {
 	if pollID <= 0 {
 		return nil, fmt.Errorf("invalid poll id")
 	}
 
 	var poll db.Poll
-	if err := h.db.WithContext(ctx).First(&poll, pollID).Error; err != nil {
+	if err := tx.First(&poll, pollID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("poll %d not found: %w", pollID, err)
 		}
@@ -238,7 +247,7 @@ func (h *Handler) GetPollStatus(ctx context.Context, pollID int) ([]OptionSelect
 	}
 
 	var voteRows []db.Vote
-	if err := h.db.WithContext(ctx).Where("poll_id = ?", pollID).Find(&voteRows).Error; err != nil {
+	if err := tx.Where("poll_id = ?", pollID).Find(&voteRows).Error; err != nil {
 		return nil, fmt.Errorf("load votes: %w", err)
 	}
 

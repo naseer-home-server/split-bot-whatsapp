@@ -60,4 +60,7 @@ func (s *Server) setupRoutes() {
 	s.router.POST("/grafana_webhook", s.grafanaWebhookHandler)
 	s.router.POST("/poll/create", s.pollCreateHandler)
 	s.router.GET("/poll/status", s.pollStatusHandler)
+	s.router.POST("/totals/create", s.totalsCreateHandler)
+	s.router.GET("/totals/assignments", s.totalsAssignmentsGetHandler)
+	s.router.PUT("/totals/assignments", s.totalsAssignmentsPutHandler)
 }

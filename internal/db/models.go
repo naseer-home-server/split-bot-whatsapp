@@ -44,3 +44,22 @@ type Vote struct {
 func (Vote) TableName() string {
 	return "votes"
 }
+
+// SplitbotTotals matches migrations/000007_splitbot_totals.* — one bill with poll-backed item assignments.
+type SplitbotTotals struct {
+	ID              int             `gorm:"column:id;primaryKey;autoIncrement"`
+	GroupID         string          `gorm:"column:group_id;type:varchar;not null"`
+	PollID          *int            `gorm:"column:poll_id"`
+	Items           json.RawMessage `gorm:"column:items;type:jsonb"`
+	Tax             json.RawMessage `gorm:"column:tax;type:jsonb"`
+	Discount        float64         `gorm:"column:discount;type:numeric"`
+	TotalInBill     float64         `gorm:"column:total_in_bill;type:numeric"`
+	CalculatedTotal float64         `gorm:"column:calculated_total;type:numeric"`
+	Assignments     json.RawMessage `gorm:"column:assignments;type:jsonb"`
+	CreatedAt       time.Time       `gorm:"column:created_at;type:timestamptz"`
+	UpdatedAt       time.Time       `gorm:"column:updated_at;type:timestamptz"`
+}
+
+func (SplitbotTotals) TableName() string {
+	return "splitbot_totals"
+}
