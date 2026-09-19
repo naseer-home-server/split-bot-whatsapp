@@ -24,8 +24,11 @@ func (h *Handler) ExportBillToGoogleSheet(ctx context.Context, totalsID int, ext
 
 	nameOf := displayNameFunc()
 	people := totals.CollectParticipants(snap.Assignments, extraPeople, nameOf)
-	title := fmt.Sprintf("Bill split #%d", row.ID)
-	layout := totals.BuildSheetLayout(title, snap.Items, snap.Tax, snap.Discount, snap.TotalInBill, snap.Assignments, people)
+	title := ""
+	if row.Title != nil {
+		title = *row.Title
+	}
+	layout := totals.BuildSheetLayout(totals.SheetTabTitle(row.ID, title), snap.Items, snap.Tax, snap.Discount, snap.TotalInBill, snap.Assignments, people)
 
 	existing := ""
 	if row.SheetID != nil {

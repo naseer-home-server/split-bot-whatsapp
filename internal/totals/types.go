@@ -3,6 +3,7 @@ package totals
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Epsilon is the max |calculated_total - total_in_bill| allowed to accept a bill.
@@ -96,6 +97,20 @@ func (e *MismatchError) Error() string {
 
 func DefaultPollTitle() string {
 	return defaultPollTitle
+}
+
+// NormalizeTitle trims a bill title. Empty means unset.
+func NormalizeTitle(s string) string {
+	return strings.TrimSpace(s)
+}
+
+// SheetTabTitle is the Google Sheet tab name for a totals row.
+func SheetTabTitle(id int, title string) string {
+	title = NormalizeTitle(title)
+	if title == "" {
+		return fmt.Sprintf("Bill split #%d", id)
+	}
+	return title
 }
 
 func MarshalItems(units []UnitItem) (json.RawMessage, error) {

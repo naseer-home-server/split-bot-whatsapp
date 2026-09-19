@@ -49,6 +49,7 @@ func (Vote) TableName() string {
 type SplitbotTotals struct {
 	ID              int             `gorm:"column:id;primaryKey;autoIncrement"`
 	GroupID         string          `gorm:"column:group_id;type:varchar;not null"`
+	Title           *string         `gorm:"column:title;type:varchar"`
 	PollID          *int            `gorm:"column:poll_id"`
 	Items           json.RawMessage `gorm:"column:items;type:jsonb"`
 	Tax             json.RawMessage `gorm:"column:tax;type:jsonb"`

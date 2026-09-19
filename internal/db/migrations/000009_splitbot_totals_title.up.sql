@@ -1,0 +1,2 @@
+ALTER TABLE splitbot_totals
+    ADD COLUMN IF NOT EXISTS title VARCHAR;

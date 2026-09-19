@@ -15,6 +15,16 @@ func TestColLetter(t *testing.T) {
 	}
 }
 
+func TestSheetTabTitle(t *testing.T) {
+	t.Parallel()
+	if got := SheetTabTitle(12, ""); got != "Bill split #12" {
+		t.Fatalf("empty title=%q", got)
+	}
+	if got := SheetTabTitle(12, "  Sichuan  "); got != "Sichuan" {
+		t.Fatalf("named title=%q", got)
+	}
+}
+
 func TestCollectParticipantsAssignedThenExtra(t *testing.T) {
 	t.Parallel()
 	assignments := map[string][]string{

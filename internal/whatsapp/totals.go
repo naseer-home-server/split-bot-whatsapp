@@ -34,6 +34,7 @@ func (h *Handler) CreateBillTotals(ctx context.Context, groupID, title string, i
 		return nil, nil, fmt.Errorf("marshal assignments: %w", err)
 	}
 
+	billTitle := totals.NormalizeTitle(title)
 	row := db.SplitbotTotals{
 		GroupID:         groupID,
 		Items:           itemsJSON,
@@ -43,14 +44,18 @@ func (h *Handler) CreateBillTotals(ctx context.Context, groupID, title string, i
 		CalculatedTotal: prepared.CalculatedTotal,
 		Assignments:     assignJSON,
 	}
+	if billTitle != "" {
+		row.Title = &billTitle
+	}
 	if err := h.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return nil, nil, fmt.Errorf("create totals row: %w", err)
 	}
 
-	if title == "" {
-		title = totals.DefaultPollTitle()
+	pollTitle := billTitle
+	if pollTitle == "" {
+		pollTitle = totals.DefaultPollTitle()
 	}
-	poll, err := h.SendPoll(ctx, title, totals.PollOptions(prepared.Units), groupID)
+	poll, err := h.SendPoll(ctx, pollTitle, totals.PollOptions(prepared.Units), groupID)
 	if err != nil {
 		_ = h.db.WithContext(ctx).Delete(&db.SplitbotTotals{}, row.ID)
 		return nil, nil, fmt.Errorf("create poll: %w", err)
