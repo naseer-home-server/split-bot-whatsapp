@@ -52,6 +52,60 @@ func TestCollectParticipantsAssignedThenExtra(t *testing.T) {
 	}
 }
 
+func TestParseExtraPerson(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in    string
+		key   string
+		isLID bool
+		ok    bool
+	}{
+		{"", "", false, false},
+		{"  Sam Lee  ", "Sam Lee", false, true},
+		{"@60123456789", "60123456789", true, true},
+		{"60123456789", "60123456789", true, true},
+		{"123@lid", "123", true, true},
+		{"@123@lid", "123", true, true},
+		{"+6012", "6012", true, true},
+	}
+	for _, tc := range cases {
+		key, isLID, ok := ParseExtraPerson(tc.in)
+		if key != tc.key || isLID != tc.isLID || ok != tc.ok {
+			t.Errorf("ParseExtraPerson(%q)=%q %v %v want %q %v %v", tc.in, key, isLID, ok, tc.key, tc.isLID, tc.ok)
+		}
+	}
+}
+
+func TestCollectParticipantsExtraLIDLooksUpName(t *testing.T) {
+	t.Parallel()
+	assignments := map[string][]string{
+		"1": {"lid-a"},
+	}
+	nameOf := func(id string) string {
+		switch id {
+		case "lid-a":
+			return "Alice Smith"
+		case "60123456789":
+			return "Naseer Ahmed Khan"
+		default:
+			return id
+		}
+	}
+	people := CollectParticipants(assignments, []string{"@60123456789", "Sam", "@lid-a", "Alice Smith"}, nameOf)
+	if len(people) != 3 {
+		t.Fatalf("len=%d: %+v", len(people), people)
+	}
+	if people[0].Name != "Alice" || people[0].Key != "lid-a" {
+		t.Fatalf("assigned=%+v", people[0])
+	}
+	if people[1].Name != "Naseer" || people[1].Key != "60123456789" {
+		t.Fatalf("extra lid=%+v", people[1])
+	}
+	if people[2].Name != "Sam" || people[2].Key != "Sam" {
+		t.Fatalf("extra name=%+v", people[2])
+	}
+}
+
 func TestCollectParticipantsUsesFirstNames(t *testing.T) {
 	t.Parallel()
 	assignments := map[string][]string{

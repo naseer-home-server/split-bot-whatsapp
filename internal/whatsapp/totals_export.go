@@ -92,5 +92,12 @@ func displayNameFunc() func(string) string {
 func normalizeUserKey(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "+")
-	return s
+	s = strings.TrimPrefix(s, "@")
+	if n := strings.Index(s, ":"); n != -1 {
+		s = s[:n]
+	}
+	if len(s) > 4 && strings.EqualFold(s[len(s)-4:], "@lid") {
+		s = s[:len(s)-4]
+	}
+	return strings.TrimSpace(s)
 }

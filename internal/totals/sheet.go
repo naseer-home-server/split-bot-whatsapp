@@ -88,22 +88,78 @@ func CollectParticipants(assignments map[string][]string, extra []string, nameOf
 
 	out := append([]Participant(nil), assigned...)
 	for _, raw := range extra {
-		name := strings.TrimSpace(raw)
-		if name == "" {
+		key, isLID, ok := ParseExtraPerson(raw)
+		if !ok {
 			continue
 		}
-		lower := strings.ToLower(name)
-		if _, ok := seenKey[name]; ok {
+		if _, exists := seenKey[key]; exists {
 			continue
 		}
-		if _, ok := seenName[lower]; ok {
+		name := key
+		if isLID {
+			name = strings.TrimSpace(nameOf(key))
+			if name == "" {
+				name = key
+			}
+		}
+		lowerName := strings.ToLower(name)
+		if _, exists := seenName[lowerName]; exists {
 			continue
 		}
-		seenKey[name] = struct{}{}
-		seenName[lower] = struct{}{}
-		out = append(out, Participant{Key: name, Name: name})
+		if _, exists := seenName[strings.ToLower(key)]; exists {
+			continue
+		}
+		seenKey[key] = struct{}{}
+		seenName[lowerName] = struct{}{}
+		seenName[strings.ToLower(key)] = struct{}{}
+		out = append(out, Participant{Key: key, Name: name})
 	}
 	return applyFirstNames(out)
+}
+
+// ParseExtraPerson classifies an extra_people value as a WhatsApp LID or a display name.
+// Mentions (@digits), …@lid, and digit-only ids are LIDs; any other text is a name.
+func ParseExtraPerson(raw string) (key string, isLID bool, ok bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", false, false
+	}
+	s = strings.TrimPrefix(s, "+")
+	s = strings.Fields(s)[0]
+
+	lower := strings.ToLower(s)
+	switch {
+	case strings.HasSuffix(lower, "@lid"):
+		s = s[:len(s)-len("@lid")]
+		s = strings.TrimPrefix(s, "@")
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return "", false, false
+		}
+		return s, true, true
+	case strings.HasPrefix(s, "@"):
+		s = strings.TrimSpace(s[1:])
+		if s == "" {
+			return "", false, false
+		}
+		return s, true, true
+	case isAllDigits(s):
+		return s, true, true
+	default:
+		return strings.TrimSpace(raw), false, true
+	}
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func firstName(full string) string {
