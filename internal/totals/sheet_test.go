@@ -42,7 +42,47 @@ func TestCollectParticipantsAssignedThenExtra(t *testing.T) {
 	}
 }
 
-func TestBuildSheetLayoutFormulas(t *testing.T) {
+func TestCollectParticipantsUsesFirstNames(t *testing.T) {
+	t.Parallel()
+	assignments := map[string][]string{
+		"1": {"lid-a", "lid-b"},
+	}
+	nameOf := func(id string) string {
+		if id == "lid-a" {
+			return "Gulshan Fathima"
+		}
+		return "Naseer Ahmed Khan"
+	}
+	people := CollectParticipants(assignments, nil, nameOf)
+	if len(people) != 2 {
+		t.Fatalf("len=%d: %+v", len(people), people)
+	}
+	if people[0].Name != "Gulshan" || people[1].Name != "Naseer" {
+		t.Fatalf("names=%q %q", people[0].Name, people[1].Name)
+	}
+}
+
+func TestCollectParticipantsDisambiguatesSameFirstName(t *testing.T) {
+	t.Parallel()
+	assignments := map[string][]string{
+		"1": {"lid-a", "lid-b"},
+	}
+	nameOf := func(id string) string {
+		if id == "lid-a" {
+			return "Alex Jones"
+		}
+		return "Alex Smith"
+	}
+	people := CollectParticipants(assignments, nil, nameOf)
+	if len(people) != 2 {
+		t.Fatalf("len=%d: %+v", len(people), people)
+	}
+	if people[0].Name != "Alex" || people[1].Name != "Alex S" {
+		t.Fatalf("names=%q %q", people[0].Name, people[1].Name)
+	}
+}
+
+func TestBuildSheetLayout(t *testing.T) {
 	t.Parallel()
 	items := []UnitItem{
 		{ID: "1", Name: "Pizza", Quantity: 2, UnitPrice: 18, PollOption: "1. Pizza x2 $18"},
@@ -62,9 +102,12 @@ func TestBuildSheetLayoutFormulas(t *testing.T) {
 	if layout.PersonCount != 2 {
 		t.Fatalf("people=%d", layout.PersonCount)
 	}
+	if layout.LastColumn != 6 {
+		t.Fatalf("last column=%d", layout.LastColumn)
+	}
 
 	header := layout.Values[0]
-	if header[0] != "Item name" || header[4] != "Alice" || header[5] != "Bob" {
+	if header[0] != "Item" || header[1] != "Price" || header[2] != "Divided by" || header[3] != "Per person" || header[4] != "Alice" || header[5] != "Bob" {
 		t.Fatalf("header=%v", header)
 	}
 

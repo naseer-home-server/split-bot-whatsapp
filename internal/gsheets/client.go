@@ -164,10 +164,96 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 			NumberFormat: &sheets.NumberFormat{Type: "NUMBER", Pattern: "#,##0.00"},
 		},
 	}
-	reqs := []*sheets.Request{
-		repeatNumberFormat(gid, 1, int64(layout.TaxTotalRow), 1, 2, money),
-		repeatNumberFormat(gid, 1, int64(layout.DiscountRow), 3, 4, money),
+	lastCol := int64(layout.LastColumn)
+	if lastCol < 4 {
+		lastCol = 4
 	}
+	tableEnd := int64(layout.TaxTotalRow)
+	reqs := []*sheets.Request{
+		{
+			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+				Properties: &sheets.SheetProperties{
+					SheetId:        gid,
+					GridProperties: &sheets.GridProperties{FrozenRowCount: 1},
+				},
+				Fields: "gridProperties.frozenRowCount",
+			},
+		},
+		repeatFormat(gid, 0, tableEnd+4, 0, lastCol, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{
+				BackgroundColor:   rgb(1, 1, 1),
+				VerticalAlignment: "MIDDLE",
+			},
+		}, "userEnteredFormat.backgroundColor,userEnteredFormat.verticalAlignment"),
+		repeatFormat(gid, 0, 1, 0, lastCol, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{
+				BackgroundColor:     rgb(31/255.0, 78/255.0, 47/255.0),
+				HorizontalAlignment: "CENTER",
+				VerticalAlignment:   "MIDDLE",
+				TextFormat:          &sheets.TextFormat{Bold: true, ForegroundColor: rgb(1, 1, 1)},
+			},
+		}, "userEnteredFormat.backgroundColor,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.textFormat"),
+		repeatFormat(gid, 1, int64(layout.DiscountRow), 0, 1, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{WrapStrategy: "WRAP"},
+		}, "userEnteredFormat.wrapStrategy"),
+		repeatFormat(gid, 1, tableEnd, 1, 2, money, "userEnteredFormat.numberFormat"),
+		repeatFormat(gid, 1, int64(layout.DiscountRow), 2, 3, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{HorizontalAlignment: "CENTER"},
+		}, "userEnteredFormat.horizontalAlignment"),
+		repeatFormat(gid, 1, int64(layout.DiscountRow), 3, 4, money, "userEnteredFormat.numberFormat"),
+		{
+			UpdateBorders: &sheets.UpdateBordersRequest{
+				Range:           grid(gid, 0, tableEnd, 0, lastCol),
+				Top:             solidBorder(),
+				Bottom:          solidBorder(),
+				Left:            solidBorder(),
+				Right:           solidBorder(),
+				InnerHorizontal: hairBorder(),
+				InnerVertical:   hairBorder(),
+			},
+		},
+		dimWidth(gid, 0, 1, 320),
+		dimWidth(gid, 1, 2, 90),
+		dimWidth(gid, 2, 3, 110),
+		dimWidth(gid, 3, 4, 110),
+	}
+
+	if layout.ItemRowCount > 0 {
+		for r := 1; r < layout.DiscountRow-1; r++ {
+			if r%2 == 0 {
+				reqs = append(reqs, repeatFormat(gid, int64(r), int64(r+1), 0, lastCol, &sheets.CellData{
+					UserEnteredFormat: &sheets.CellFormat{BackgroundColor: rgb(245/255.0, 245/255.0, 245/255.0)},
+				}, "userEnteredFormat.backgroundColor"))
+			}
+		}
+	}
+
+	reqs = append(reqs,
+		repeatFormat(gid, int64(layout.DiscountRow-1), int64(layout.DiscountRow), 0, lastCol, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{
+				BackgroundColor: rgb(1, 242/255.0, 204/255.0),
+				TextFormat:      &sheets.TextFormat{Italic: true},
+			},
+		}, "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"),
+		repeatFormat(gid, int64(layout.TotalRow-1), int64(layout.TotalRow), 0, lastCol, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{
+				BackgroundColor: rgb(241/255.0, 241/255.0, 241/255.0),
+				TextFormat:      &sheets.TextFormat{Bold: true},
+			},
+		}, "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"),
+		repeatFormat(gid, int64(layout.TaxTotalRow-1), int64(layout.TaxTotalRow), 0, lastCol, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{
+				BackgroundColor: rgb(217/255.0, 234/255.0, 211/255.0),
+				TextFormat:      &sheets.TextFormat{Bold: true},
+			},
+		}, "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"),
+		repeatFormat(gid, int64(layout.TaxTotalRow+1), int64(layout.TaxTotalRow+3), 0, 2, &sheets.CellData{
+			UserEnteredFormat: &sheets.CellFormat{
+				TextFormat: &sheets.TextFormat{ForegroundColor: rgb(0.4, 0.4, 0.4), Italic: true},
+			},
+		}, "userEnteredFormat.textFormat"),
+	)
+
 	if layout.PersonCount > 0 && layout.CheckboxRange.EndColumn > layout.CheckboxRange.StartColumn {
 		r := layout.CheckboxRange
 		reqs = append(reqs, &sheets.Request{
@@ -179,18 +265,21 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 						ShowCustomUi: true,
 						Strict:       true,
 					},
+					UserEnteredFormat: &sheets.CellFormat{HorizontalAlignment: "CENTER"},
 				},
-				Fields: "dataValidation",
+				Fields: "dataValidation,userEnteredFormat.horizontalAlignment",
 			},
 		})
-		reqs = append(reqs, repeatNumberFormat(
+		reqs = append(reqs, repeatFormat(
 			gid,
 			int64(layout.TotalRow-1),
 			int64(layout.TaxTotalRow),
 			int64(r.StartColumn),
 			int64(r.EndColumn),
 			money,
+			"userEnteredFormat.numberFormat",
 		))
+		reqs = append(reqs, dimWidth(gid, int64(r.StartColumn), int64(r.EndColumn), 100))
 	}
 
 	_, err = c.sheets.Spreadsheets.BatchUpdate(c.spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
@@ -271,12 +360,39 @@ func grid(sheetID, startRow, endRow, startCol, endCol int64) *sheets.GridRange {
 	}
 }
 
-func repeatNumberFormat(sheetID, startRow, endRow, startCol, endCol int64, cell *sheets.CellData) *sheets.Request {
+func repeatFormat(sheetID, startRow, endRow, startCol, endCol int64, cell *sheets.CellData, fields string) *sheets.Request {
 	return &sheets.Request{
 		RepeatCell: &sheets.RepeatCellRequest{
 			Range:  grid(sheetID, startRow, endRow, startCol, endCol),
 			Cell:   cell,
-			Fields: "userEnteredFormat.numberFormat",
+			Fields: fields,
 		},
 	}
+}
+
+func dimWidth(sheetID, startCol, endCol, pixels int64) *sheets.Request {
+	return &sheets.Request{
+		UpdateDimensionProperties: &sheets.UpdateDimensionPropertiesRequest{
+			Range: &sheets.DimensionRange{
+				SheetId:    sheetID,
+				Dimension:  "COLUMNS",
+				StartIndex: startCol,
+				EndIndex:   endCol,
+			},
+			Properties: &sheets.DimensionProperties{PixelSize: pixels},
+			Fields:     "pixelSize",
+		},
+	}
+}
+
+func rgb(r, g, b float64) *sheets.Color {
+	return &sheets.Color{Red: r, Green: g, Blue: b, Alpha: 1}
+}
+
+func solidBorder() *sheets.Border {
+	return &sheets.Border{Style: "SOLID", Color: rgb(0.82, 0.82, 0.82)}
+}
+
+func hairBorder() *sheets.Border {
+	return &sheets.Border{Style: "SOLID", Color: rgb(0.9, 0.9, 0.9)}
 }

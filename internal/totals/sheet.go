@@ -31,6 +31,7 @@ type SheetLayout struct {
 	TaxTotalRow    int
 	TaxProductCell string // e.g. $B$12
 	PersonCount    int
+	LastColumn     int // exclusive, 0-based
 }
 
 // GridRange is a 0-based half-open range (Sheets API style).
@@ -92,7 +93,60 @@ func CollectParticipants(assignments map[string][]string, extra []string, nameOf
 		seenName[lower] = struct{}{}
 		out = append(out, Participant{Key: name, Name: name})
 	}
+	return applyFirstNames(out)
+}
+
+func firstName(full string) string {
+	fields := strings.Fields(strings.TrimSpace(full))
+	if len(fields) == 0 {
+		return strings.TrimSpace(full)
+	}
+	return fields[0]
+}
+
+func applyFirstNames(people []Participant) []Participant {
+	used := make(map[string]struct{}, len(people))
+	out := make([]Participant, len(people))
+	for i, p := range people {
+		name := disambiguateFirstName(p.Name, used)
+		out[i] = Participant{Key: p.Key, Name: name}
+	}
 	return out
+}
+
+func disambiguateFirstName(full string, used map[string]struct{}) string {
+	first := firstName(full)
+	if first == "" {
+		first = strings.TrimSpace(full)
+	}
+	if markUnused(first, used) {
+		return first
+	}
+	fields := strings.Fields(strings.TrimSpace(full))
+	if len(fields) >= 2 {
+		runes := []rune(fields[1])
+		if len(runes) > 0 {
+			candidate := first + " " + string(runes[0])
+			if markUnused(candidate, used) {
+				return candidate
+			}
+		}
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s %d", first, i)
+		if markUnused(candidate, used) {
+			return candidate
+		}
+	}
+}
+
+func markUnused(name string, used map[string]struct{}) bool {
+	key := strings.ToLower(name)
+	if _, ok := used[key]; ok {
+		return false
+	}
+	used[key] = struct{}{}
+	return true
 }
 
 // BuildSheetLayout builds values (formulas as strings starting with =) for a live split sheet.
@@ -121,7 +175,7 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 	taxCell := fmt.Sprintf("$B$%d", taxInfoRow)
 
 	lastPersonCol := sheetFirstPerson + nPeople - 1
-	header := []any{"Item name", "price", "divided by", "per person amount"}
+	header := []any{"Item", "Price", "Divided by", "Per person"}
 	for _, p := range people {
 		header = append(header, p.Name)
 	}
@@ -212,6 +266,7 @@ func BuildSheetLayout(title string, items []UnitItem, tax []Tax, discount float6
 		TaxTotalRow:    taxTotalRow,
 		TaxProductCell: taxCell,
 		PersonCount:    nPeople,
+		LastColumn:     4 + nPeople,
 	}
 	if nPeople > 0 && nItems+1 > 0 {
 		endRow := discountRow // 1-based inclusive discount
