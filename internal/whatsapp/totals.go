@@ -94,12 +94,20 @@ func (h *Handler) GetBillAssignments(ctx context.Context, totalsID int) (*db.Spl
 }
 
 // SetBillAssignments merges a partial assignments map onto the totals row and returns the new snapshot.
+// After export (sheet_id is set), assignments are locked to the sheet and this returns ErrSheetAssignmentsLocked.
 func (h *Handler) SetBillAssignments(ctx context.Context, totalsID int, patch map[string][]string) (*db.SplitbotTotals, totals.Snapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	row, err := h.loadTotals(ctx, totalsID)
 	if err != nil {
+		return nil, totals.Snapshot{}, err
+	}
+	if totals.HasSheetExport(row.SheetID) {
+		err := totals.ErrSheetAssignmentsLocked
+		if url := gsheets.TabURL(config.Get().Google.SpreadsheetID, strings.TrimSpace(*row.SheetID)); url != "" {
+			err = fmt.Errorf("%w: %s", err, url)
+		}
 		return nil, totals.Snapshot{}, err
 	}
 	units, err := totals.UnmarshalItems(row.Items)

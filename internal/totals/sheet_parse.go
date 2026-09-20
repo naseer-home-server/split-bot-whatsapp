@@ -1,6 +1,7 @@
 package totals
 
 import (
+	"errors"
 	"strings"
 )
 
@@ -18,6 +19,9 @@ type SheetDimensionMeta struct {
 	ItemIDs    map[int]string // row -> item id
 	PersonKeys map[int]string // column -> person key
 }
+
+// ErrSheetAssignmentsLocked is returned when assignments cannot be changed because a sheet already exists.
+var ErrSheetAssignmentsLocked = errors.New("this bill has been exported to Google Sheets; the sheet is the source of truth for assignments and cannot be changed here. Update the checkboxes on the sheet instead")
 
 // HasSheetExport is true when a totals row has been written to Google Sheets.
 func HasSheetExport(sheetID *string) bool {

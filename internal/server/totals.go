@@ -112,6 +112,13 @@ func (s *Server) totalsAssignmentsPutHandler(c *gin.Context) {
 
 	row, snap, err := s.handler.SetBillAssignments(c.Request.Context(), req.TotalsID, req.Assignments)
 	if err != nil {
+		if errors.Is(err, totals.ErrSheetAssignmentsLocked) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "Assignments locked to Google Sheet",
+				"details": err.Error(),
+			})
+			return
+		}
 		if isClientAssignmentsError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid assignments",
