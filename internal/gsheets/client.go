@@ -177,10 +177,13 @@ func (c *Client) writeLayout(ctx context.Context, gid int64, tabName string, lay
 		{
 			UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
 				Properties: &sheets.SheetProperties{
-					SheetId:        gid,
-					GridProperties: &sheets.GridProperties{FrozenRowCount: 1},
+					SheetId: gid,
+					GridProperties: &sheets.GridProperties{
+						FrozenRowCount:    1,
+						FrozenColumnCount: 1,
+					},
 				},
-				Fields: "gridProperties.frozenRowCount",
+				Fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
 			},
 		},
 		repeatFormat(gid, 0, lastData, 0, lastCol, &sheets.CellData{
