@@ -29,7 +29,7 @@ type totalsAssignmentsRequest struct {
 
 type totalsExportSheetRequest struct {
 	TotalsID    int      `json:"totals_id" binding:"required"`
-	ExtraPeople []string `json:"extra_people"` // display names or WhatsApp LIDs (@digits, digits, …@lid)
+	ExtraPeople []string `json:"extra_people"`
 }
 
 func (s *Server) totalsCreateHandler(c *gin.Context) {

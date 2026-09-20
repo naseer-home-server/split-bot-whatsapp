@@ -88,19 +88,16 @@ func CollectParticipants(assignments map[string][]string, extra []string, nameOf
 
 	out := append([]Participant(nil), assigned...)
 	for _, raw := range extra {
-		key, isLID, ok := ParseExtraPerson(raw)
+		key, _, ok := ParseExtraPerson(raw)
 		if !ok {
 			continue
 		}
 		if _, exists := seenKey[key]; exists {
 			continue
 		}
-		name := key
-		if isLID {
-			name = strings.TrimSpace(nameOf(key))
-			if name == "" {
-				name = key
-			}
+		name := strings.TrimSpace(nameOf(key))
+		if name == "" {
+			name = key
 		}
 		lowerName := strings.ToLower(name)
 		if _, exists := seenName[lowerName]; exists {

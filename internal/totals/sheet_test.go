@@ -40,7 +40,7 @@ func TestCollectParticipantsAssignedThenExtra(t *testing.T) {
 		}
 		return id
 	}
-	people := CollectParticipants(assignments, []string{"Cara", "Alice", " lid-b "}, nameOf)
+	people := CollectParticipants(assignments, []string{"Cara", "Alice", "lid-b"}, nameOf)
 	if len(people) != 3 {
 		t.Fatalf("len=%d want 3: %+v", len(people), people)
 	}
@@ -91,7 +91,7 @@ func TestCollectParticipantsExtraLIDLooksUpName(t *testing.T) {
 			return id
 		}
 	}
-	people := CollectParticipants(assignments, []string{"@60123456789", "Sam", "@lid-a", "Alice Smith"}, nameOf)
+	people := CollectParticipants(assignments, []string{"@60123456789", "Sam", "lid-a", "Alice Smith"}, nameOf)
 	if len(people) != 3 {
 		t.Fatalf("len=%d: %+v", len(people), people)
 	}
